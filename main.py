@@ -5,10 +5,13 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_RUNNING, STATE_PAUSED, STATE_STOPPED
 from datetime import datetime
 import asyncio
+from typing import List, Iterable
 
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
+intents.members = True  # 取得成員與活動資訊
+intents.presences = True  # 監聽狀態/遊戲變更
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -38,6 +41,41 @@ async def send_weekly_message():
 
 scheduler = BackgroundScheduler()
 scheduler_started = False
+
+# 監看關鍵字（可用環境變數覆蓋，使用分號 ; 分隔）
+KEYWORDS = [
+    k.strip().lower()
+    for k in os.getenv(
+        "PRESENCE_KEYWORDS",
+        "honkai;star rail;崩壞;崩坏;崩壊;星穹;星鐵;星铁",
+    ).split(";")
+    if k.strip()
+]
+
+# 使用者通知冷卻（分鐘）；避免洗頻
+PRESENCE_COOLDOWN_MIN = int(os.getenv("PRESENCE_COOLDOWN_MIN", "120"))
+_presence_last_notified = {}
+
+
+def _activity_texts(activities: Iterable[discord.Activity]) -> List[str]:
+    texts: List[str] = []
+    for act in activities or []:
+        try:
+            # Custom Status 的文字在 state
+            if isinstance(act, discord.CustomActivity):
+                if getattr(act, "state", None):
+                    texts.append(str(act.state))
+            else:
+                if getattr(act, "name", None):
+                    texts.append(str(act.name))
+        except Exception:
+            continue
+    return texts
+
+
+def _contains_keywords(s: str) -> bool:
+    t = (s or "").lower()
+    return any(k in t for k in KEYWORDS)
 
 @scheduler.scheduled_job(
     "cron",
@@ -78,6 +116,43 @@ async def on_message(message):
         await message.channel.send(GIF_URL)
 
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_presence_update(before: discord.Member, after: discord.Member):
+    # 僅處理非機器人帳號
+    if after.bot:
+        return
+
+    # 僅在指定頻道所屬的伺服器中觸發
+    channel = bot.get_channel(CHANNEL_ID)
+    if not isinstance(channel, discord.TextChannel):
+        return
+    if after.guild is None or channel.guild.id != after.guild.id:
+        return
+
+    # 權限檢查
+    me = channel.guild.me or channel.guild.get_member(bot.user.id)
+    if not me or not channel.permissions_for(me).send_messages:
+        return
+
+    # 由「不包含」→「包含」目標字眼時才提醒
+    before_hit = any(_contains_keywords(t) for t in _activity_texts(getattr(before, "activities", [])))
+    after_hit = any(_contains_keywords(t) for t in _activity_texts(getattr(after, "activities", [])))
+    if not after_hit or before_hit:
+        return
+
+    # 冷卻避免洗頻
+    now = datetime.utcnow()
+    last = _presence_last_notified.get(after.id)
+    if last and (now - last).total_seconds() < PRESENCE_COOLDOWN_MIN * 60:
+        return
+
+    _presence_last_notified[after.id] = now
+    try:
+        await channel.send(f"{after.mention} Honkai 不會跑，書會飛走，去讀書！📚")
+    except Exception:
+        pass
 
 
 @bot.command(name="status", aliases=["狀態", "状态", "st"])
