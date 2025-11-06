@@ -1,5 +1,6 @@
 import os
 import discord
+from discord import app_commands
 from discord.ext import commands
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.schedulers.base import STATE_RUNNING, STATE_PAUSED, STATE_STOPPED
@@ -88,6 +89,20 @@ def _contains_keywords(s: str) -> bool:
 def weekly_job():
     asyncio.run_coroutine_threadsafe(send_weekly_message(), bot.loop)
 
+async def _sync_app_commands():
+    guild_id = os.getenv("GUILD_ID")
+    try:
+        if guild_id:
+            guild = discord.Object(id=int(guild_id))
+            synced = await bot.tree.sync(guild=guild)
+            print(f"✅ 已同步 {len(synced)} 個 Slash 指令到測試伺服器 {guild_id}")
+        else:
+            synced = await bot.tree.sync()
+            print(f"✅ 已全域同步 {len(synced)} 個 Slash 指令（可能需數分鐘生效）")
+    except Exception as e:
+        print(f"⚠️ Slash 指令同步失敗：{e}")
+
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot 已登入為 {bot.user}")
@@ -95,6 +110,7 @@ async def on_ready():
     if not scheduler_started:
         scheduler.start()
         scheduler_started = True
+    await _sync_app_commands()
 
 @bot.event
 async def on_message(message):
@@ -155,9 +171,7 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
         pass
 
 
-@bot.command(name="status", aliases=["狀態", "状态", "st"])
-async def status_command(ctx: commands.Context):
-    """檢查排程與頻道狀態。"""
+def _build_status_text() -> str:
     # Scheduler state
     state = scheduler.state
     if state == STATE_RUNNING:
@@ -195,6 +209,17 @@ async def status_command(ctx: commands.Context):
         f"- 下一次排程：{next_run_text}\n"
         f"- 現在時間：{now_text}"
     )
-    await ctx.reply(msg)
+    return msg
+
+
+@bot.command(name="status", aliases=["狀態", "状态", "st"])
+async def status_command(ctx: commands.Context):
+    """檢查排程與頻道狀態。"""
+    await ctx.reply(_build_status_text())
+
+
+@bot.tree.command(name="status", description="檢查排程與頻道狀態")
+async def slash_status(interaction: discord.Interaction):
+    await interaction.response.send_message(_build_status_text(), ephemeral=True)
 
 bot.run(TOKEN)

@@ -12,6 +12,7 @@
 - 狀態檢查指令：`!status` / `!狀態` / `!状态` / `!st`
   - 顯示 Scheduler 狀態、目標頻道、是否具備發訊權限、下一次排程時間與現在時間。
 - 監控成員狀態/遊戲：若有人狀態或遊戲包含關鍵字（預設含「Honkai」「星鐵」「星穹」等），在指定頻道 @ 他提醒去讀書（含冷卻避免洗頻）。
+- Slash 指令：新增 `/status`（預設以 ephemeral 回覆給呼叫者）。
 
 ---
 
@@ -22,6 +23,7 @@
   - Message Content Intent（訊息內容）
   - Presence Intent（線上狀態）
   - Members Intent（成員）
+ - OAuth2 邀請需包含 `applications.commands` 與 `bot` scope。
 
 在 Discord 開發者後台：Bot → Privileged Gateway Intents → 勾選「MESSAGE CONTENT」「PRESENCE」「SERVER MEMBERS」。
 
@@ -49,6 +51,7 @@
 - `PRESENCE_KEYWORDS`（可選）：狀態/遊戲監看關鍵字；以分號 `;` 分隔。
   - 預設：`honkai;star rail;崩壞;崩坏;崩壊;星穹;星鐵;星铁`
 - `PRESENCE_COOLDOWN_MIN`（可選）：對同一人提醒的冷卻分鐘數，預設 `120`。
+- `GUILD_ID`（可選）：開發/測試伺服器的 ID。若設定，Slash 指令會只同步到該伺服器，立即生效；未設定則做全域同步（可能需數分鐘）。
 
 設定方式範例：
 - Windows PowerShell
@@ -65,6 +68,9 @@
 - macOS/Linux：`python3 main.py`
 
 Bot 啟動後不會自動發送訊息，僅會在排程時間觸發（每週日 09:00 Asia/Taipei）。
+首次啟動會同步 Slash 指令：
+- 若設 `GUILD_ID` → 立即可用。
+- 若無 → 進行全域同步，可能需數分鐘才會在用戶端顯示。
 
 ---
 
@@ -78,6 +84,9 @@ Bot 啟動後不會自動發送訊息，僅會在排程時間觸發（每週日 
     - 現在時間（UTC）
   
 Bot 也會被動監聽成員狀態/遊戲變更（需 Presence/Members Intents）。當由「不含關鍵字」變成「含關鍵字」時，會在 `CHANNEL_ID` 指定頻道 @ 當事人提醒去讀書。具備冷卻機制避免洗頻，可用 `PRESENCE_COOLDOWN_MIN` 調整。
+
+Slash 指令：
+- `/status`：以 ephemeral 顯示同樣的狀態資訊。
 
 ---
 
