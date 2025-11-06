@@ -150,7 +150,7 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
 
     _presence_last_notified[after.id] = now
     try:
-        await channel.send(f"{after.mention} Honkai 不會跑，書會飛走，去讀書！📚")
+        await channel.send(f"{after.mention} 去讀書📚==")
     except Exception:
         pass
 
