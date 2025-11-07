@@ -158,32 +158,32 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-@bot.event
-async def on_presence_update(before, after):
-    if after.bot:
-        return
-    channel = bot.get_channel(CHANNEL_ID)
-    if not isinstance(channel, discord.TextChannel):
-        return
-    if after.guild is None or channel.guild.id != after.guild.id:
-        return
+# @bot.event
+# async def on_presence_update(before, after):
+#     if after.bot:
+#         return
+#     channel = bot.get_channel(CHANNEL_ID)
+#     if not isinstance(channel, discord.TextChannel):
+#         return
+#     if after.guild is None or channel.guild.id != after.guild.id:
+#         return
 
-    me = channel.guild.me or channel.guild.get_member(bot.user.id)
-    if not me or not channel.permissions_for(me).send_messages:
-        return
+#     me = channel.guild.me or channel.guild.get_member(bot.user.id)
+#     if not me or not channel.permissions_for(me).send_messages:
+#         return
 
-    before_hit = any(_contains_keywords(t) for t in _activity_texts(before.activities))
-    after_hit = any(_contains_keywords(t) for t in _activity_texts(after.activities))
-    if not after_hit or before_hit:
-        return
+#     before_hit = any(_contains_keywords(t) for t in _activity_texts(before.activities))
+#     after_hit = any(_contains_keywords(t) for t in _activity_texts(after.activities))
+#     if not after_hit or before_hit:
+#         return
 
-    now = datetime.utcnow()
-    last = _presence_last_notified.get(after.id)
-    if last and (now - last).total_seconds() < PRESENCE_COOLDOWN_MIN * 60:
-        return
+#     now = datetime.utcnow()
+#     last = _presence_last_notified.get(after.id)
+#     if last and (now - last).total_seconds() < PRESENCE_COOLDOWN_MIN * 60:
+#         return
 
-    _presence_last_notified[after.id] = now
-    await channel.send(f"{after.mention} 去讀書📚==")
+#     _presence_last_notified[after.id] = now
+#     await channel.send(f"{after.mention} 去讀書📚==")
 
 
 # === 狀態文字 ===
