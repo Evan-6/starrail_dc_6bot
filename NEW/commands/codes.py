@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, timedelta
-from typing import List
+from typing import Dict, List, Set
 
 import discord
 from discord import app_commands
@@ -105,6 +105,18 @@ class CodesCog(commands.Cog):
             )
             return
 
+        # 先抽取代碼並去重
+        code_to_sources: Dict[str, List[str]] = {}
+        seen_codes: Set[str] = set()
+        for item in collected:
+            content_up = (item["content"] or "").upper()
+            for m in code_pattern.finditer(content_up):
+                code = m.group(0)
+                seen_codes.add(code)
+                src = f"#{item['channel'].name} @ {item['created_at'].strftime('%Y-%m-%d')}"
+                code_to_sources.setdefault(code, []).append(src)
+
+        # 組合給 Gemini 的上下文（訊息節錄 + 代碼清單）
         lines = []
         for item in collected:
             ts = item["created_at"].strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -120,14 +132,23 @@ class CodesCog(commands.Cog):
 
         header = (
             f"📋 兌換碼整理（過去 {days} 天）\n"
-            f"掃描訊息：{scanned}，符合關鍵：{matched}，來源頻道數：{len(channels)}"
+            f"掃描訊息：{scanned}，符合關鍵：{matched}，來源頻道數：{len(channels)}\n"
+            f"去重後代碼數：{len(seen_codes)}"
         )
         allowed = max(400, 1900 - len(header) - 1)
 
+        # 附上機器先抽取的代碼清單以輔助準確
+        auto_codes_block = "\n".join(
+            f"- {c}（出處：{', '.join(srcs[:3])}{'…' if len(srcs) > 3 else ''})" for c, srcs in code_to_sources.items()
+        ) or "（無機器抽取結果）"
+
+        now_utc = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         prompt = (
             "你是資料整理助手。從以下訊息中擷取所有明確的『兌換碼』，"
             "整理為 Markdown 表格，欄位：代碼｜遊戲/平台｜獎勵（簡短）｜是否有效/過期（若可辨識）｜來源（#頻道/作者/UTC 時間）｜備註（可空）。"
             "去除重複代碼，避免編造未知資訊；無法判定者留空。若表格過長，請摘要重點代碼。\n\n"
+            f"現在時間（供參考）：{now_utc}\n\n"
+            f"機器先抽取代碼（供參考）：\n{auto_codes_block}\n\n"
             f"訊息（過去 {days} 天，僅節錄）：\n{context_block}"
         )
 
