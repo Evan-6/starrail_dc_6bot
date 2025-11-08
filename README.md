@@ -15,9 +15,11 @@
   - 若啟用，可在指定頻道提醒去讀書（含冷卻避免洗頻）。
 - Slash 指令：
   - `/status`：以 ephemeral 回覆狀態資訊。
-  - `/sixstats`：統計本頻道過去 N 天（預設 7 天）每位使用者含有「6/六」的訊息數（每則訊息最多算一次）。
+  - `/sixstats`：統計本頻道過去 N 天（預設 7 天）每位使用者含有「6/六」的訊息數（每則訊息最多算一次），可選擇僅自己可見。
   - `/say`：讓 Bot 發一段文字。
-  - `/jemini`：使用 Google Gemini 生成文字（需設定 API Key）。
+  - `/jemini`：使用 Google Gemini 生成文字（需設定 API Key；回覆限制 1900 字內）。
+  - `/codes`：使用 Gemini 檢查過去 N 天全伺服器的「兌換碼」訊息並整理為表格（回覆限制 1900 字內），可選擇僅自己可見。
+  - `/analyze`：讀取本頻道過去 N 天的訊息，套用你提供的指令交給 Gemini 進行自訂分析（回覆限制 1900 字內），可選擇僅自己可見。
 
 ---
 
@@ -86,15 +88,19 @@ Bot 啟動後不會自動發送訊息，僅會在排程時間觸發（每週日 
 
 Slash 指令：
 - `/status`：以 ephemeral 顯示狀態資訊。
-- `/sixstats [days]`：統計本頻道過去 `days` 天（1–30，預設 7）每位使用者含有「6/六」的訊息數（每則訊息最多算一次）。
+- `/sixstats [days] [private]`：統計本頻道過去 `days` 天（1–30，預設 7）每位使用者含有「6/六」的訊息數（每則訊息最多算一次）。`private` 預設為 True。
 - `/say text`：讓 Bot 發送 `text`。
-- `/jemini prompt`：用 Gemini 生成回覆（需 `GEMINI_API_KEY`）。
+- `/jemini prompt`：用 Gemini 生成回覆（需 `GEMINI_API_KEY`；回覆限制 1900 字內）。
+- `/codes [days] [private]`：使用 Gemini 檢查過去 `days` 天（1–30，預設 7）全伺服器可讀取的訊息，彙整包含「兌換碼/兑换码/序號」等關鍵字或疑似代碼的訊息為表格（回覆限制 1900 字內）。`private` 預設為 True。
+ - `/analyze instruction [days] [private]`：讀取本頻道過去 `days` 天（1–30，預設 7）的訊息，將這些訊息作為上下文交給 Gemini，依你的 `instruction` 進行自訂分析（回覆限制 1900 字內）。`private` 預設為 True。
 
 ---
 
 **權限與設定注意事項**
 - Bot 必須在目標伺服器中，且對 `CHANNEL_ID` 指定頻道擁有「發送訊息」權限。
 - `/sixstats` 需要在目標頻道具備「讀取訊息歷史」與「讀取訊息」權限。
+- `/codes` 需要在伺服器各文字頻道具備「讀取訊息」與「讀取訊息歷史」權限，且使用 Gemini 會消耗 API 配額。
+ - 所有使用 Gemini 的回覆都會限制在 1900 字元以內，以避免超過 Discord 單則訊息 2000 字元上限。
 - 若 `!status` 顯示找不到頻道或沒有發訊權限，請檢查：
   - 邀請範圍與權限是否足夠（Send Messages）。
   - `CHANNEL_ID` 是否正確（右鍵頻道 → 複製 ID，需要開啟「開發者模式」）。

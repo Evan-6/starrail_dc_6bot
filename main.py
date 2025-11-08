@@ -1,4 +1,5 @@
 import os
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -43,13 +44,22 @@ scheduler_started = False
 
 
 # === Gemini 生成函式 ===
-async def generate_with_gemini(prompt: str) -> str:
+async def generate_with_gemini(prompt: str, max_chars: int = 1800) -> str:
     try:
         client = genai.Client(api_key=GEMINI_KEY)
         model = "gemini-2.5-flash"
 
+        # 統一於提示中提出需求，包含長度限制與風格
+        requirements = (
+            f"需求：\n"
+            f"- 回覆長度請控制在 {max_chars} 個字元以內（含 Markdown 符號）。\n"
+            f"- 若內容過長，請摘要重點。\n"
+            f"- 請避免多餘前言與客套，專注結果本身。\n"
+        )
+        final_prompt = f"{requirements}\n任務：\n{prompt}"
+
         contents = [
-            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+            types.Content(role="user", parts=[types.Part.from_text(text=final_prompt)])
         ]
         config = types.GenerateContentConfig(
             thinking_config=types.ThinkingConfig(thinking_budget=-1),
@@ -62,7 +72,10 @@ async def generate_with_gemini(prompt: str) -> str:
         ):
             if chunk.text:
                 text += chunk.text
-        return text.strip() or "（無回覆）"
+        text = (text or "").strip()
+        if len(text) > max_chars:
+            text = text[:max_chars]
+        return text or "（無回覆）"
     except Exception as e:
         return f"Gemini 錯誤：{e}"
 
@@ -225,11 +238,11 @@ async def slash_say(interaction: discord.Interaction, text: str):
     await interaction.response.send_message(text)
 
 
-@bot.tree.command(name="jemini", description="使用 Google Gemini 生成文字")
-@app_commands.describe(prompt="輸入要詢問的內容")
+@bot.tree.command(name="jemini", description="使用 Google Gemini 生成文字（限制 1900 字內）")
+@app_commands.describe(prompt="輸入要詢問的內容（回覆限制 1900 字內）")
 async def slash_jemini(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer(thinking=True)
-    reply = await generate_with_gemini(prompt)
+    reply = await generate_with_gemini(prompt, max_chars=1900)
     await interaction.followup.send(reply[:1900])
 
 
@@ -237,19 +250,24 @@ async def slash_jemini(interaction: discord.Interaction, prompt: str):
     name="sixstats",
     description="統計過去 N 天每位使用者說了幾次 6/六（預設 7 天，僅本頻道）",
 )
-@app_commands.describe(days="統計天數（1-30），預設 7")
+@app_commands.describe(
+    days="統計天數（1-30），預設 7",
+    private="是否僅自己可見（預設 True）",
+)
 async def slash_sixstats(
-    interaction: discord.Interaction, days: app_commands.Range[int, 1, 30] = 7
+    interaction: discord.Interaction,
+    days: app_commands.Range[int, 1, 30] = 7,
+    private: bool = True,
 ):
     # 延遲回覆以避免逾時
-    await interaction.response.defer(thinking=True, ephemeral=True)
+    await interaction.response.defer(thinking=True, ephemeral=private)
 
     # 計算起始時間
     start_time = datetime.utcnow() - timedelta(days=int(days))
 
     channel = interaction.channel
     if channel is None:
-        await interaction.followup.send("找不到頻道。")
+        await interaction.followup.send("找不到頻道。", ephemeral=private)
         return
 
     counts = {}
@@ -265,12 +283,13 @@ async def slash_sixstats(
             if ("6" in content) or ("六" in content):
                 counts[msg.author.id] = counts.get(msg.author.id, 0) + 1
     except Exception as e:
-        await interaction.followup.send(f"讀取訊息時發生錯誤：{e}")
+        await interaction.followup.send(f"讀取訊息時發生錯誤：{e}", ephemeral=private)
         return
 
     if not counts:
         await interaction.followup.send(
-            f"過去 {days} 天內，本頻道沒有出現『6/六』。"
+            f"過去 {days} 天內，本頻道沒有出現『6/六』。",
+            ephemeral=private,
         )
         return
 
@@ -298,7 +317,217 @@ async def slash_sixstats(
     if len(text) > 1900:
         text = header + "\n" + "\n".join(lines)[:1800]
 
-    await interaction.followup.send(text)
+    await interaction.followup.send(text, ephemeral=private)
+
+
+@bot.tree.command(
+    name="codes",
+    description="使用 Gemini 彙整 N 天內的兌換碼（全伺服器）",
+)
+@app_commands.describe(
+    days="統計天數（1-30），預設 7",
+    private="是否僅自己可見（預設 True）",
+)
+async def slash_codes(
+    interaction: discord.Interaction,
+    days: app_commands.Range[int, 1, 30] = 7,
+    private: bool = True,
+):
+    await interaction.response.defer(thinking=True, ephemeral=private)
+
+    start_time = datetime.utcnow() - timedelta(days=int(days))
+    guild = interaction.guild
+    me = guild.me if guild else None
+
+    # 關鍵字與樣式
+    redeem_keywords = [
+        "兌換碼",
+        "兑换码",
+        "兌換序號",
+        "兌換序号",
+        "兑换序号",
+        "序號",
+        "序号",
+        "禮包碼",
+        "礼包码",
+        "兌換",
+        "兑换",
+    ]
+    code_pattern = re.compile(r"(?<![A-Z0-9])[A-Z0-9]{7,18}(?![A-Z0-9])")
+
+    collected = []
+    scanned = 0
+    matched = 0
+    errors = []
+
+    channels: List[discord.TextChannel] = []
+    if guild:
+        # 僅蒐集文字頻道且可讀取歷史
+        for ch in guild.text_channels:
+            try:
+                perms = ch.permissions_for(me) if me else None
+                if perms and perms.read_message_history and perms.read_messages:
+                    channels.append(ch)
+            except Exception:
+                continue
+    else:
+        if isinstance(interaction.channel, discord.TextChannel):
+            channels = [interaction.channel]
+
+    max_collect = 400
+    max_context_chars = 12000
+
+    for ch in channels:
+        try:
+            async for msg in ch.history(after=start_time, limit=None, oldest_first=False):
+                scanned += 1
+                content = (msg.content or "").strip()
+                if not content:
+                    continue
+                lower = content.lower()
+                has_kw = any(k in lower for k in redeem_keywords)
+                has_code = bool(code_pattern.search(content.upper()))
+                if has_kw or has_code:
+                    matched += 1
+                    collected.append(
+                        dict(
+                            channel=ch,
+                            author=msg.author,
+                            created_at=msg.created_at,
+                            content=content,
+                            jump_url=msg.jump_url,
+                        )
+                    )
+                    if len(collected) >= max_collect:
+                        break
+        except Exception as e:
+            errors.append(f"#{ch.name}: {e}")
+        if len(collected) >= max_collect:
+            break
+
+    if not collected:
+        await interaction.followup.send(
+            f"過去 {days} 天未找到可能含『兌換碼』的訊息。掃描訊息：{scanned}。",
+            ephemeral=private,
+        )
+        return
+
+    # 準備給 Gemini 的上下文
+    def _shorten(s: str, n: int = 260) -> str:
+        s = s.replace("\n", " ")
+        return (s[: n - 1] + "…") if len(s) > n else s
+
+    lines = []
+    for item in collected:
+        ts = item["created_at"].strftime("%Y-%m-%d %H:%M:%S UTC")
+        ch_name = f"#{item['channel'].name}"
+        author = getattr(item["author"], "display_name", str(item["author"]))
+        snippet = _shorten(item["content"], 260)
+        lines.append(f"- [{ts}] {ch_name} {author}: {snippet}")
+        if sum(len(x) + 1 for x in lines) > max_context_chars:
+            lines.pop()  # remove last if exceeded
+            break
+
+    context_block = "\n".join(lines)
+
+    header = (
+        f"📋 兌換碼整理（過去 {days} 天）\n"
+        f"掃描訊息：{scanned}，符合關鍵：{matched}，來源頻道數：{len(channels)}"
+    )
+    # 根據標頭長度計算可用內容長度，避免超過訊息上限
+    allowed = max(400, 1900 - len(header) - 1)
+
+    prompt = (
+        "你是資料整理助手。從以下訊息中擷取所有明確的『兌換碼』，"
+        "整理為 Markdown 表格，欄位：代碼｜遊戲/平台｜獎勵（簡短）｜是否有效/過期（若可辨識）｜來源（#頻道/作者/UTC 時間）｜備註（可空）。"
+        "去除重複代碼，避免編造未知資訊；無法判定者留空。若表格過長，請摘要重點代碼。\n\n"
+        f"訊息（過去 {days} 天，僅節錄）：\n{context_block}"
+    )
+
+    reply = await generate_with_gemini(prompt, max_chars=allowed)
+
+    text = header + "\n" + reply[:allowed]
+    await interaction.followup.send(text, ephemeral=private)
+
+
+@bot.tree.command(
+    name="analyze",
+    description="使用 Gemini 對本頻道 N 天訊息進行自訂分析",
+)
+@app_commands.describe(
+    instruction="給 Gemini 的分析指令/提問",
+    days="統計天數（1-30），預設 7",
+    private="是否僅自己可見（預設 True）",
+)
+async def slash_analyze(
+    interaction: discord.Interaction,
+    instruction: str,
+    days: app_commands.Range[int, 1, 30] = 7,
+    private: bool = True,
+):
+    await interaction.response.defer(thinking=True, ephemeral=private)
+
+    start_time = datetime.utcnow() - timedelta(days=int(days))
+
+    channel = interaction.channel
+    if channel is None:
+        await interaction.followup.send("找不到頻道。", ephemeral=private)
+        return
+
+    scanned = 0
+    max_context_chars = 12000
+
+    def _shorten(s: str, n: int = 260) -> str:
+        s = (s or "").replace("\n", " ")
+        return (s[: n - 1] + "…") if len(s) > n else s
+
+    lines: List[str] = []
+    try:
+        async for msg in channel.history(after=start_time, limit=None, oldest_first=False):
+            scanned += 1
+            if msg.author.bot:
+                continue
+            content = (msg.content or "").strip()
+            if not content:
+                continue
+            ts = msg.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            author = getattr(msg.author, "display_name", str(msg.author))
+            line = f"- [{ts}] {author}: {_shorten(content, 260)}"
+            # 控制總字元數
+            if sum(len(x) + 1 for x in lines) + len(line) + 1 > max_context_chars:
+                break
+            lines.append(line)
+    except Exception as e:
+        await interaction.followup.send(f"讀取訊息時發生錯誤：{e}", ephemeral=private)
+        return
+
+    if not lines:
+        await interaction.followup.send(
+            f"過去 {days} 天本頻道沒有可用的文字訊息可分析。掃描訊息：{scanned}。",
+            ephemeral=private,
+        )
+        return
+
+    context_block = "\n".join(lines)
+
+    header = (
+        f"🧠 自訂分析（本頻道，過去 {days} 天）\n"
+        f"掃描訊息：{scanned}"
+    )
+
+    allowed = max(400, 1900 - len(header) - 1)
+
+    composed_prompt = (
+        "你是資料分析助手。請嚴格依照使用者的指令，僅根據提供的訊息內容進行分析與回答，"
+        "避免臆測或引用不存在的資訊。若無法判定請明確標註『無法判定』；若內容過長，請摘要。") + (
+        f"\n\n使用者指令：{instruction}\n\n"
+        f"訊息上下文（過去 {days} 天，僅節錄）：\n{context_block}"
+    )
+
+    reply = await generate_with_gemini(composed_prompt, max_chars=allowed)
+
+    text = header + "\n" + (reply or "")[:allowed]
+    await interaction.followup.send(text, ephemeral=private)
 
 
 bot.run(TOKEN)
