@@ -9,8 +9,21 @@ from NEW.utils.text import shorten
 class ContextMenusCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._menus = [
+            app_commands.ContextMenu(name="Summarize with Gemini", callback=self.summarize_message),
+            app_commands.ContextMenu(name="Reply with Gemini", callback=self.reply_with_gemini),
+            app_commands.ContextMenu(name="Moderate Message", callback=self.moderate_message),
+        ]
+        for menu in self._menus:
+            bot.tree.add_command(menu)
 
-    @app_commands.context_menu(name="Summarize with Gemini")
+    def cog_unload(self) -> None:
+        for menu in self._menus:
+            try:
+                self.bot.tree.remove_command(menu.name, type=menu.type)
+            except Exception:
+                pass
+
     async def summarize_message(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(thinking=True, ephemeral=True)
         snippet = shorten(message.content or "", 2000)
@@ -21,7 +34,6 @@ class ContextMenusCog(commands.Cog):
         reply = await generate_with_gemini(prompt, max_chars=1200)
         await interaction.followup.send(reply[:1900], ephemeral=True)
 
-    @app_commands.context_menu(name="Reply with Gemini")
     async def reply_with_gemini(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(thinking=True, ephemeral=True)
         snippet = shorten(message.content or "", 2000)
@@ -33,7 +45,6 @@ class ContextMenusCog(commands.Cog):
         reply = await generate_with_gemini(prompt, max_chars=1200)
         await interaction.followup.send("建議回覆：\n" + reply[:1800], ephemeral=True)
 
-    @app_commands.context_menu(name="Moderate Message")
     async def moderate_message(self, interaction: discord.Interaction, message: discord.Message):
         await interaction.response.defer(thinking=True, ephemeral=True)
         snippet = shorten(message.content or "", 2000)
