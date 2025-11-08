@@ -9,10 +9,15 @@
   - 傳「真是太6了」或「真是太六了」→ 回覆「6」並加上 6️⃣ 反應。
   - 傳「6...」→ 回覆 6 的 ASCII 圖。
   - 傳「3/7」→ 回覆一張 GIF 圖連結。
-- 狀態檢查指令：`!status` / `!狀態` / `!状态` / `!st`
-  - 顯示 Scheduler 狀態、目標頻道、是否具備發訊權限、下一次排程時間與現在時間。
-- 監控成員狀態/遊戲：若有人狀態或遊戲包含關鍵字（預設含「Honkai」「星鐵」「星穹」等），在指定頻道 @ 他提醒去讀書（含冷卻避免洗頻）。
-- Slash 指令：新增 `/status`（預設以 ephemeral 回覆給呼叫者）。
+- 狀態檢查：`!status` 與 `/status`
+  - 顯示 Scheduler 狀態、下一次排程時間與現在時間。
+- 監控成員狀態/遊戲（目前預設關閉，程式碼已註解）：
+  - 若啟用，可在指定頻道提醒去讀書（含冷卻避免洗頻）。
+- Slash 指令：
+  - `/status`：以 ephemeral 回覆狀態資訊。
+  - `/sixstats`：統計本頻道過去 N 天（預設 7 天）每位使用者含有「6/六」的訊息數（每則訊息最多算一次）。
+  - `/say`：讓 Bot 發一段文字。
+  - `/jemini`：使用 Google Gemini 生成文字（需設定 API Key）。
 
 ---
 
@@ -47,11 +52,12 @@
 **環境變數**
 - `DISCORD_TOKEN`：你的 Bot Token。
 - `CHANNEL_ID`：要發送排程提醒訊息的文字頻道 ID（整數）。
-  - Bot 也會在這個頻道提醒「去讀書」。
+  - 若啟用狀態監控，亦會在此頻道提醒「去讀書」。
 - `PRESENCE_KEYWORDS`（可選）：狀態/遊戲監看關鍵字；以分號 `;` 分隔。
   - 預設：`honkai;star rail;崩壞;崩坏;崩壊;星穹;星鐵;星铁`
 - `PRESENCE_COOLDOWN_MIN`（可選）：對同一人提醒的冷卻分鐘數，預設 `120`。
 - `GUILD_ID`（可選）：開發/測試伺服器的 ID。若設定，Slash 指令會只同步到該伺服器，立即生效；未設定則做全域同步（可能需數分鐘）。
+- `GEMINI_API_KEY`（可選）：使用 `/jemini` 指令所需的 Google Gemini API Key。
 
 設定方式範例：
 - Windows PowerShell
@@ -75,23 +81,20 @@ Bot 啟動後不會自動發送訊息，僅會在排程時間觸發（每週日 
 ---
 
 **指令**
-- `!status` / `!狀態` / `!状态` / `!st`
-  - 顯示：
-    - Bot 帳號
-    - Scheduler 狀態（Running/Paused/Stopped）
-    - 目標頻道、是否具備發訊權限
-    - 下一次排程時間
-    - 現在時間（UTC）
-  
-Bot 也會被動監聽成員狀態/遊戲變更（需 Presence/Members Intents）。當由「不含關鍵字」變成「含關鍵字」時，會在 `CHANNEL_ID` 指定頻道 @ 當事人提醒去讀書。具備冷卻機制避免洗頻，可用 `PRESENCE_COOLDOWN_MIN` 調整。
+- `!status`
+  - 顯示：Scheduler 狀態（Running/Paused/Stopped）、下一次排程時間、現在時間（UTC）。
 
 Slash 指令：
-- `/status`：以 ephemeral 顯示同樣的狀態資訊。
+- `/status`：以 ephemeral 顯示狀態資訊。
+- `/sixstats [days]`：統計本頻道過去 `days` 天（1–30，預設 7）每位使用者含有「6/六」的訊息數（每則訊息最多算一次）。
+- `/say text`：讓 Bot 發送 `text`。
+- `/jemini prompt`：用 Gemini 生成回覆（需 `GEMINI_API_KEY`）。
 
 ---
 
 **權限與設定注意事項**
 - Bot 必須在目標伺服器中，且對 `CHANNEL_ID` 指定頻道擁有「發送訊息」權限。
+- `/sixstats` 需要在目標頻道具備「讀取訊息歷史」與「讀取訊息」權限。
 - 若 `!status` 顯示找不到頻道或沒有發訊權限，請檢查：
   - 邀請範圍與權限是否足夠（Send Messages）。
   - `CHANNEL_ID` 是否正確（右鍵頻道 → 複製 ID，需要開啟「開發者模式」）。
