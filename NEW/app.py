@@ -10,6 +10,7 @@ async def _load_cogs(bot):
     # Commands cogs
     for mod in [
         "NEW.commands.status",
+        "NEW.commands.schedule_cmd",
         "NEW.commands.say",
         "NEW.commands.gemini_cmd",
         "NEW.commands.context_menus",

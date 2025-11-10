@@ -17,10 +17,12 @@ Structure
   `context_menus` (Summarize/Reply/Moderate), `summarize`, `language` (translate/polish),
   `askdoc`, `digest`, `topics` (analyze_topics), `moderate`, `chat`, `sixstats`, `codes`, `analyze`.
 - `NEW/utils/` — Small helpers and constants.
+- `NEW/data/schedules.json` ?? JSON reminder definitions (auto-created if missing).
 
 Notes
 - Slash commands are synced on startup. Set `GUILD_ID` for faster per-guild sync during development; unset for global sync.
-- Scheduler runs a weekly reminder on Sundays at 09:00 (`TIMEZONE` default `Asia/Taipei`).
+- Scheduler reminders are backed by `NEW/data/schedules.json`; manage them via `/schedule`.
+- Default reminder fires on Sundays at 09:00 (`TIMEZONE` default `Asia/Taipei`).
 - Presence monitor is modularized; enable by setting `PRESENCE_ENABLED=true`.
 
 Commands (highlights)
@@ -36,6 +38,7 @@ Commands (highlights)
 - `/moderate text:<content> [private]` — Classify content risks.
 - `/chat start|status|stop|say` — Lightweight multi-turn chat with short memory per channel.
 - `/status` — Check scheduler status and next run time.
+- `/schedule list|create|update|delete|run` ?? Manage reminders (mutating commands require Manage Server).
 - `/sixstats [days] [private]` — Count messages containing 6/六 in the channel.
 - `/codes [days] [private]` — Aggregate potential redeem codes across channels, summarized by Gemini.
 - `/analyze instruction:<text> [days] [private]` — Custom channel analysis summarized by Gemini.

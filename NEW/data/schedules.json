@@ -1,0 +1,15 @@
+{
+  "timezone": "Asia/Taipei",
+  "jobs": [
+    {
+      "id": "weekly_reminder",
+      "description": "每週提醒：週日 09:00 模一下宇宙",
+      "channel_id": null,
+      "day_of_week": "sun",
+      "hour": 9,
+      "minute": 0,
+      "message": "@here 記得模一下宇宙ʕ·ᴥ·ʔ",
+      "enabled": false
+    }
+  ]
+}

@@ -1,15 +1,18 @@
 import asyncio
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.schedulers.base import STATE_PAUSED, STATE_RUNNING, STATE_STOPPED
 
 from NEW import config
+from NEW.utils import schedule_store
 
 
 scheduler = BackgroundScheduler()
 _started = False
-_bot_loop = None  # type: Optional[asyncio.AbstractEventLoop]
+_bot_loop: Optional[asyncio.AbstractEventLoop] = None
+_bot_instance: Optional[Any] = None
 
 
 def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
@@ -17,43 +20,90 @@ def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
     _bot_loop = loop
 
 
-async def _send_weekly_message(bot) -> None:
-    if not config.CHANNEL_ID:
+async def _send_message(job_conf: Dict[str, Any]) -> None:
+    if _bot_instance is None:
         return
-    channel = bot.get_channel(int(config.CHANNEL_ID))
-    if channel:
-        await channel.send("@here 記得打模擬宇宙ʕ•̫͡•ʔ•̫͡•ʔ•̫͡•ʕ•̫͡•ʔ•̫͡•ʔ")
+    channel_id = job_conf.get("channel_id")
+    if not channel_id:
+        return
+    channel = _bot_instance.get_channel(int(channel_id))
+    if channel is None:
+        return
+    message = job_conf.get("message") or schedule_store.DEFAULT_MESSAGE
+    await channel.send(message)
 
 
-def _weekly_job(bot):
+def _job_runner(job_conf: Dict[str, Any]) -> None:
     if _bot_loop is None:
         return
-    fut = asyncio.run_coroutine_threadsafe(_send_weekly_message(bot), _bot_loop)
+    fut = asyncio.run_coroutine_threadsafe(_send_message(job_conf), _bot_loop)
     try:
         fut.result(timeout=30)
     except Exception:
         pass
 
 
-def init_jobs(bot) -> None:
-    # Clear existing then add cron job
+def _clear_jobs() -> None:
     for job in list(scheduler.get_jobs()):
         try:
             scheduler.remove_job(job.id)
         except Exception:
             pass
 
-    scheduler.add_job(
-        _weekly_job,
-        id="weekly_reminder",
-        trigger="cron",
-        day_of_week="sun",
-        hour=9,
-        minute=0,
-        timezone=config.TIMEZONE,
-        args=[bot],
-        replace_existing=True,
-    )
+
+def _schedule_jobs() -> None:
+    cfg = schedule_store.load_config()
+    default_tz = cfg.get("timezone") or config.TIMEZONE
+    _clear_jobs()
+
+    for job_conf in cfg.get("jobs", []):
+        if not job_conf.get("enabled", True):
+            continue
+        if not job_conf.get("channel_id"):
+            continue
+        tz_name = job_conf.get("timezone") or default_tz
+        job_id = f"schedule::{job_conf.get('id')}"
+
+        try:
+            scheduler.add_job(
+                _job_runner,
+                id=job_id,
+                trigger="cron",
+                day_of_week=job_conf.get("day_of_week", "sun"),
+                hour=int(job_conf.get("hour", 9)),
+                minute=int(job_conf.get("minute", 0)),
+                timezone=tz_name,
+                args=[job_conf],
+                replace_existing=True,
+            )
+        except Exception:
+            continue
+
+
+def init_jobs(bot) -> None:
+    global _bot_instance
+    _bot_instance = bot
+    _schedule_jobs()
+
+
+def refresh_jobs() -> None:
+    if _bot_instance is None:
+        return
+    _schedule_jobs()
+
+
+def run_job_now(job_id: str) -> bool:
+    job_conf = schedule_store.get_job(job_id)
+    if not job_conf or not job_conf.get("channel_id"):
+        return False
+    if _bot_loop is None:
+        return False
+    fut = asyncio.run_coroutine_threadsafe(_send_message(job_conf), _bot_loop)
+    try:
+        fut.result(timeout=30)
+        return True
+    except Exception:
+        return False
 
 
 def ensure_started() -> None:
@@ -64,29 +114,33 @@ def ensure_started() -> None:
 
 
 def status_text() -> str:
-    # Minimal status reporter for commands
-    from apscheduler.schedulers.base import (
-        STATE_RUNNING,
-        STATE_PAUSED,
-        STATE_STOPPED,
-    )
-
-    state = scheduler.state
-    if state == STATE_RUNNING:
+    if scheduler.state == STATE_RUNNING:
         state_text = "Running"
-    elif state == STATE_PAUSED:
+    elif scheduler.state == STATE_PAUSED:
         state_text = "Paused"
-    elif state == STATE_STOPPED:
+    elif scheduler.state == STATE_STOPPED:
         state_text = "Stopped"
     else:
-        state_text = str(state)
+        state_text = str(scheduler.state)
 
-    job = scheduler.get_job("weekly_reminder")
-    next_run = (
-        "無"
-        if not job or not job.next_run_time
-        else job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-    )
+    jobs = scheduler.get_jobs()
+    if not jobs:
+        jobs_lines = "- （尚未建立排程或皆已停用）"
+    else:
+        parts = []
+        for job in jobs:
+            next_run = "暫無"
+            if job.next_run_time:
+                next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+            parts.append(f"- {job.id.replace('schedule::', '')}：{next_run}")
+        jobs_lines = "\n".join(parts)
+
     now_text = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    return f"📊 狀態\n- Scheduler：{state_text}\n- 下一次排程：{next_run}\n- 現在時間：{now_text}"
-
+    cfg_path = schedule_store.config_path()
+    return (
+        "排程狀態\n"
+        f"- Scheduler：{state_text}\n"
+        f"{jobs_lines}\n"
+        f"- 目前時間：{now_text}\n"
+        f"- 設定檔：{cfg_path}"
+    )
