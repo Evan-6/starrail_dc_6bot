@@ -11,12 +11,12 @@ async def generate_with_gemini(prompt: str, max_chars: int = 1800) -> str:
         model = "gemini-2.5-flash"
 
         requirements = (
-            f"需求：\n"
-            f"- 回覆長度請控制在 {max_chars} 個字元以內（含 Markdown 符號）。\n"
-            f"- 若內容過長，請摘要重點。\n"
-            f"- 請避免多餘前言與客套，專注結果本身。\n"
+            f"請遵守以下要求：\n"
+            f"- 回覆字數請控制在 {max_chars} 字以內（包含 Markdown 標記）。\n"
+            f"- 若不確定答案，請先說明不知道，不要亂編。\n"
+            f"- 重點式回答，避免冗長或不實資訊。\n"
         )
-        final_prompt = f"{requirements}\n任務：\n{prompt}"
+        final_prompt = f"{requirements}\n\n使用者提問：\n{prompt}"
 
         contents: List[types.Content] = [
             types.Content(role="user", parts=[types.Part.from_text(text=final_prompt)])
@@ -35,9 +35,9 @@ async def generate_with_gemini(prompt: str, max_chars: int = 1800) -> str:
         text = (text or "").strip()
         if len(text) > max_chars:
             text = text[:max_chars]
-        return text or "（無回覆）"
+        return text or "沒有收到回應。"
     except Exception as e:
-        return f"Gemini 錯誤：{e}"
+        return f"Gemini 發生錯誤：{e}"
 
 
 async def generate_with_gemini_vision(
@@ -54,12 +54,12 @@ async def generate_with_gemini_vision(
         model = "gemini-2.5-flash"
 
         requirements = (
-            f"需求：\n"
-            f"- 回覆長度請控制在 {max_chars} 個字元以內（含 Markdown 符號）。\n"
-            f"- 若內容過長，請摘要重點。\n"
-            f"- 專注在圖片與題意本身，避免多餘前言。\n"
+            f"請遵守以下要求：\n"
+            f"- 回覆字數請控制在 {max_chars} 字以內（包含 Markdown 標記）。\n"
+            f"- 優先依據圖片與提問作答，不確定時請直接說明。\n"
+            f"- 重點式回答，避免冗長或不實資訊。\n"
         )
-        final_prompt = f"{requirements}\n任務：\n{prompt}"
+        final_prompt = f"{requirements}\n\n使用者提問：\n{prompt}"
 
         parts: List[types.Part] = [types.Part.from_text(text=final_prompt)]
         for data, mime in images or []:
@@ -82,7 +82,57 @@ async def generate_with_gemini_vision(
         text = (text or "").strip()
         if len(text) > max_chars:
             text = text[:max_chars]
-        return text or "（無回覆）"
+        return text or "沒有收到回應。"
     except Exception as e:
-        return f"Gemini 錯誤：{e}"
+        return f"Gemini 發生錯誤：{e}"
 
+
+async def generate_gemini_image(
+    prompt: str,
+    image_size: str = "1K",
+    max_chars: int = 1800,
+) -> Tuple[str, List[Tuple[bytes, str]]]:
+    """Generate an image (and optional text) with Gemini image preview."""
+    try:
+        client = genai.Client(api_key=config.GEMINI_API_KEY)
+        model = "gemini-3-pro-image-preview"
+
+        contents: List[types.Content] = [
+            types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
+        ]
+        config_gc = types.GenerateContentConfig(
+            response_modalities=[
+                "IMAGE",
+                "TEXT",
+            ],
+            image_config=types.ImageConfig(image_size=image_size),
+        )
+
+        text_parts: List[str] = []
+        images: List[Tuple[bytes, str]] = []
+
+        for chunk in client.models.generate_content_stream(
+            model=model,
+            contents=contents,
+            config=config_gc,
+        ):
+            if chunk.text:
+                text_parts.append(chunk.text)
+
+            candidate = (chunk.candidates or [None])[0]
+            if not candidate or not candidate.content or not candidate.content.parts:
+                continue
+
+            for part in candidate.content.parts:
+                inline_data = getattr(part, "inline_data", None)
+                if inline_data and inline_data.data:
+                    images.append((inline_data.data, inline_data.mime_type or "image/png"))
+                if part.text:
+                    text_parts.append(part.text)
+
+        text = "".join(text_parts).strip()
+        if len(text) > max_chars:
+            text = text[:max_chars]
+        return text, images
+    except Exception as e:
+        return f"Gemini 發生錯誤：{e}", []

@@ -13,6 +13,7 @@ async def _load_cogs(bot):
         "NEW.commands.schedule_cmd",
         "NEW.commands.say",
         "NEW.commands.gemini_cmd",
+        "NEW.commands.draw",
         "NEW.commands.context_menus",
         "NEW.commands.summarize",
         "NEW.commands.language",
