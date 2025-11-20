@@ -51,8 +51,8 @@ class DrawCog(commands.Cog):
 
         await interaction.followup.send(
             content or "",
-            files=files or None,
-            ephemeral=private
+            files=files,
+            ephemeral=private,
         )
 
 
